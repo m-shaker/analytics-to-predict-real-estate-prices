@@ -1,0 +1,636 @@
+---
+title: "MDA 9169A Project"
+author: "Moustafa Shaker, Huicong(Ivy) Wu"
+output: 
+    html_document: 
+       keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read Data
+```{r}
+#house price data
+data = read.csv("kc_house_subset.csv")
+#predict the house sales in King County, Washington State, USA
+#consisted of historic data of houses sold between May 2014 to May 2015. 
+#understand which factors are responsible for higher property value - $650K and above
+```
+
+1. Data Description
+```{r}
+library(dplyr)
+dim(data)#dimension of dataset
+str(data)#data type for each variables
+```
+2.Data information
+```{r}
+library(funModeling) 
+library(tidyverse) 
+library(Hmisc)
+df <-data[,-c(1)]#exclude id
+data_stats <- df_status(data)#check data unique, non-zeros, zeros, type and NA values.
+arrange(data_stats, -p_zeros) %>% select(variable, q_zeros, p_zeros)# order data by percentages of zeros
+```
+
+Waterfront can be categorical variable.
+```{r}
+# high carinality variables
+#one in which it can take many different values
+arrange(data_stats, unique) %>%select(variable, unique)# frequency of lowest rank of variable
+# frequency of continous variables
+freq(df$bedrooms)
+freq(df$grade)
+freq(df$floors)
+freq(df$view)
+freq(df$condition)
+freq(df$waterfront)
+freq(df$bathrooms)
+```
+
+3.Data Prepocessing and Feature Construction
+3.1 Handle variable"date" format
+```{r}
+df$date = substr(df$date, 1, 6)
+# Converting it to numeric as we can only use numeric values for corrleation
+df$date = as.numeric(as.character(df$date))
+```
+
+3.2 Add new feature age and renov_ag
+```{r}
+last_renew<-1:nrow(df)
+index =1
+df$start = substr(df$date, 1, 4)
+df$age<-as.numeric(as.character(df$start))-df$yr_built
+for (i in df$yr_renovated){
+  #print(i)
+  if (i != 0){
+     # print(inedx)
+      last_renew[index]=as.numeric(df$start)[index]-i
+  }
+  else{last_renew[index]=0}
+  index=index+1
+}
+df$renov_age<-last_renew
+#drop yr_built, y_renovated, start, date
+drop <- c("date","start","yr_renovated","yr_built")
+df<-df[!(names(df) %in% drop)]
+```
+
+3.3 Remove rows which bathroom ==0 and bedroom ==0
+```{r}
+df <-df[df$bathrooms > 0,]
+df <-df[df$bedrooms > 0,]
+```
+
+3.4  add dummy variables for zipcode
+```{r}
+zip_ = factor(df$zipcode)
+dummies = model.matrix(~zip_)
+df <-cbind(df,dummies[,-c(1)])
+#drop zipcode
+drop <- c("zipcode")
+df<-df[!(names(df) %in% drop)]
+```
+
+3.5 add new feature distance to center
+```{r}
+new<-paste(df$lat,sep=",",df$long)
+distance <-1:nrow(df)
+dist_to_center <- function (lat1, lon1, lat2, lon2)
+{   
+    lon2 <- lon2*pi/180;
+    lat2 <- lat2*pi/180;
+    lon1 <- lon1*pi/180;
+    lat1 <- lat1*pi/180;
+    dlon <- lon2 - lon1
+    dlat<- lat2 - lat1
+    a <- sin(dlat/2)^2 + cos(lat1) * cos(lat2) * sin(dlon/2)^2
+    c <- 2 * atan2( sqrt(a), sqrt(1-a) ) 
+    d <- 3961 * c;
+} 
+#print(dist_to_center(47.3487,-122.036,47.6062, 122.3321))      
+for (i in 1:nrow(df)){
+   distance[i]<-dist_to_center(df$long[i],df$lat[i], -122.200676,47.610378)*1.6
+}
+df$distance_to_center<-distance
+# drop lat and long
+drop <- c("lat","long")
+df<-df[!(names(df) %in% drop)]
+head(df)
+```
+
+3.6 add new feature bed to bath ratio
+```{r}
+bed_to_bath<-df$bedrooms/df$bathrooms
+df<-cbind(df,bed_to_bath)
+```
+
+3.7 add new feature ratio between the square footage of the interior living space and the land lot
+```{r}
+living_to_lot<-df$sqft_living/df$sqft_lot
+df<-cbind(df,living_to_lot)
+```
+
+3.8 add new feature the price per square footage
+```{r}
+price_per_sqrt<-df$price/df$sqft_lot
+df<-cbind(df,price_per_sqrt)
+```
+
+3.9 add new feature the price per interior living space 
+```{r}
+price_per_interior<-df$price/df$sqft_living
+df<-cbind(df,price_per_interior)
+```
+
+3.10 add new feature the price per floor
+```{r}
+price_per_floor<-df$price/df$floors
+df<-cbind(df,price_per_floor)
+```
+
+3.11 add new feature Ratio between floors and land
+```{r}
+floors_to_land<-df$floors/df$sqft_lot
+df<-cbind(df,floors_to_land)
+```
+
+3.12 add new feature Ratio of house living space to nearest 15 houses
+```{r}
+living_living15<-df$sqft_living/df$sqft_living15
+df<-cbind(df,living_living15)
+```
+
+3.13 add new feature Ratio of land lot to nearest 15 houses
+```{r}
+lot_lot15<-df$sqft_lot/df$sqft_lot15
+df<-cbind(df,lot_lot15)
+```
+
+3.14 add new feature bed to sqft_living 
+```{r}
+bed_living<-df$bedrooms/df$sqft_living
+df<-cbind(df,bed_living)
+```
+
+3.15 add new feature price per bedroom 
+```{r}
+price_bed<-df$price/df$bedrooms
+df<-cbind(df,price_bed)
+```
+
+3.16 add new feature bed to floor 
+```{r}
+bed_floor<-df$bedrooms/df$floors
+df<-cbind(df,bed_floor)
+```
+
+3.17 add new feature bed to land
+```{r}
+bed_land<-df$bedrooms/df$sqft_lot
+df<-cbind(df,bed_land)
+```
+
+3.18 add new feature price per bathrooms
+```{r}
+price_per_bathroom<-df$price/df$bathrooms
+df<-cbind(df,price_per_bathroom)
+```
+
+3.19 add new feature price per condition 
+```{r}
+price_per_condition<-df$price/df$condition
+df<-cbind(df,price_per_condition)
+```
+
+3.20 add new feature price per grade 
+```{r}
+price_per_grade<-df$price/df$grade
+df<-cbind(df,price_per_grade)
+```
+
+3.21 add new feature price per sqft_above
+```{r}
+price_per_sqftabove<-df$price/df$sqft_above
+df<-cbind(df,price_per_sqftabove)
+```
+
+3.22 add new feature price per distance from centre 
+```{r}
+price_per_dist<-df$price/df$distance_to_center
+df<-cbind(df,price_per_dist)
+```
+
+3.23 add new feature bathroom to sqft_living
+```{r}
+bathroom_to_sqft_living<-df$bedrooms/df$sqft_living
+df<-cbind(df,bathroom_to_sqft_living)
+```
+
+3.24 add new feature bathroom to floors 
+```{r}
+bathroom_to_floors<-df$bathrooms/df$floors
+df<-cbind(df,bathroom_to_floors)
+```
+
+3.25 add new feature sqftliving_floots
+```{r}
+sqftliving_floors<-df$sqft_living/df$floors
+df<-cbind(df,sqftliving_floors)
+```
+
+3.26 add new feature sqftliving_sqftabove
+```{r}
+sqftliving_sqftabove<-df$sqft_living/df$sqft_above
+df<-cbind(df,sqftliving_sqftabove)
+```
+
+3.27 add new feature age_dif_renovate
+```{r}
+age_dif_renovate<-df$age-df$renov_age
+df<-cbind(df,age_dif_renovate)
+```
+
+
+4. Exploratory Data Analysis
+4.1 Pairplots among all variables
+```{r}
+pairs(price~bedrooms+bathrooms+sqft_living+floors,data = df,col = "blue",pch = 16)
+pairs(price~sqft_lot+sqft_above+sqft_basement+sqft_living+sqft_living15+sqft_lot15,data = df,col = "blue",pch = 16)
+pairs(price~waterfront+condition+view+grade,data = df,col = "blue",pch = 16)#categorical variables
+```
+
+4.2 Analyze response variable - house price distribution
+```{r}
+#install.packages("ggpubr")
+library(ggpubr)
+# Basic density plot with mean line and marginal rug
+a <- ggplot(df, aes(x = price))
+a + geom_histogram(aes(y = ..density..), 
+                   colour="black", fill="white",bins=30) +
+  geom_density(alpha = 0.2, fill = "#FF6666") 
+boxplot(df$price)
+```
+
+4.3 Analyze how age and yr_renew of houses vs. price
+```{r}
+plot(df$price~df$age)
+plot(df$price~df$renov_age)
+```
+
+4.4 Find bathrooms relation with house price
+```{r}
+price_bath<- select(df,price,bathrooms)
+boxplot(price_bath$price~price_bath$bathrooms,xlab="bathrooms",ylab="House Price",main="bathrooms vs. house price",col = "blue")
+```
+
+4.5 Find how sqft_living related to house price
+```{r}
+price_area<- select(df,price,sqft_living)
+plot(price_area$price~price_area$sqft_living,xlab="sqft_living",ylab="House Price",main="sqft_living vs. house price",pch =16,col ="blue")
+```
+
+4.6 Find how sqft_above related to house price
+```{r}
+price_above<- select(df,price,sqft_above)
+plot(price_above$price~price_above$sqft_above,xlab="sqft_above",ylab="House Price",main="sqft_above vs. house price",pch=16,col ="blue")
+```
+
+4.7 Find how sqft_basement related to house price
+```{r}
+price_above<- select(df,price,sqft_basement)
+plot(price_above$price~price_above$sqft_basement,xlab="sqft_basement",ylab="House Price",main="sqft_basement vs. house price",pch=16,col ="blue")
+```
+
+4.8 Find how sqft_living15 related to house price
+```{r}
+price_sqft15<- select(df,price,sqft_living15)
+plot(price_sqft15$price~price_sqft15$sqft_living15,xlab="sqft_living",ylab="House Price",main="sqft_living15 vs. house price",pch=16,col ="blue")
+```
+
+4.9 lat and long to center
+```{r}
+plot(df$price~df$distance_to_center)
+#min(df$distance_to_center)
+#max(df$distance_to_center)
+#df
+```
+
+4.10 Find how grade affects the house price
+```{r}
+price_grade<- select(df,price,grade)
+boxplot(price_grade$price~price_grade$grade,xlab="grade",ylab="House Price",main="grade vs. house price",col =c("yellow","lightyellow","blue","red","green","orange","purple","pink","grey") ,border = "brown")
+abline(h =mean(price_grade$price),col="red",lwd=3, lty=2)
+plot(price_grade$price~price_grade$grade,xlab="grade",ylab="House Price",main=" Scatterplot of grade vs. house price")
+```
+
+4.11 Find relationship with View and price
+```{r}
+price_view<- select(df,price,view)
+boxplot(price_view$price~price_view$view,xlab="view",ylab="House Price",main="view vs. house price",col = "blue")
+plot(price_view$price~price_view$view,xlab="view",ylab="House Price",main="Scatterplot of view vs. house price")
+```
+
+4.12 Find relationship with condition and price
+```{r}
+price_condition<- select(df,price,condition)
+boxplot(price_condition$price~price_condition$condition,xlab="condition",ylab="House Price",main="condition vs. house price",col = "blue")
+plot(price_condition$price~price_condition$condition,xlab="condition",ylab="House Price",main=" Scatterplot of condition vs. house price")
+```
+4.13 Find relationship with waterfront and price
+```{r}
+price_waterfront<- select(df,price,waterfront)
+boxplot(price_waterfront$price~price_waterfront$waterfront,xlab="waterfront",ylab="House Price",main="waterfront vs. house price",col = "blue")
+```
+4.14 Find relationship with floors and price
+```{r}
+price_floors<- select(df,price,floors)
+boxplot(price_floors$price~price_floors$floors,xlab="floors",ylab="House Price",main="floors vs. house price",pch =16,col ="blue")
+```
+
+4.15 Find relationship with price and bed_to_bath
+```{r}
+plot(df$price~df$bed_to_bath)
+```
+4.16 Find relationship with price and living_to_lot
+```{r}
+plot(df$price~df$living_to_lot)
+```
+4.17 Find relationship with price and price/sqrt,price/interior,price_per_floor, price/sqft_above,price_per_dist
+```{r}
+plot(df$price~df$price_per_sqrt)
+plot(df$price~df$price_per_interior)
+plot(df$price~df$price_per_floor)
+plot(df$price~df$price_per_sqftabove)
+plot(df$price~df$price_per_dist)
+```
+
+4.18 Find relationship with price and price/bed,price/bathroom,price/condtion,price/grade, 
+```{r}
+plot(df$price~df$price_per_bathroom)
+plot(df$price~df$price_bed)
+plot(df$price~df$price_per_condition)
+plot(df$price~df$price_per_grade)
+```
+
+4.19 Find relationship with price and floors_to_land,living_living15,lot_lot15,bed_living,bed_land,bed_floor,bathroom_to_floors,sqftliving_floots,sqftliving_sqftabove
+```{r}
+plot(df$price~df$floors_to_land)
+plot(df$price~df$living_living15)
+plot(df$price~df$lot_lot15)
+plot(df$price~df$bed_living)
+plot(df$price~df$bed_land)
+plot(df$price~df$bed_floor)
+plot(df$price~df$bathroom_to_floors)
+plot(df$price~df$sqftliving_floors)
+plot(df$price~df$sqftliving_sqftabove)
+plot(df$price~df$age_dif_renovate)
+```
+
+```{r}
+df_new<-df[-c(17:85)]#drop zipcode...
+#df_new
+#information about continuous variables, including quantiles, mean, median, count, missing values.
+exclude_ <-c("waterfront")
+exclude_df<-df[ , !(names(df) %in% exclude_)]
+describe(exclude_df)
+```
+```{r}
+ncol(df_new)
+```
+
+4.19 Correlation Matrix and Correlation Heatmap
+```{r}
+library(ggplot2)
+library(reshape2)
+#rebuild the dataframe
+corr_matrix_data <- cor(df_new)
+#plot correlation matrix
+head(corr_matrix_data)#linear dependence between two variables
+print("rank of correlation index")
+sort(corr_matrix_data[,1])
+#default is "pearson"
+#plot heatmap
+melted_corr_matrix <- melt(corr_matrix_data)
+ggplot(data = melted_corr_matrix, aes(x=Var1, y=Var2, fill=value)) + geom_tile() +
+theme(text = element_text(size=12),axis.text.x = element_text(angle=90, hjust=1),plot.title = element_text(hjust=0.5))+ggtitle("Correlation Heatmap")+labs( fill = expression("Relation"))+scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1),name="Pearson\nCorrelation") +geom_text(aes(Var2, Var1, label = round(value,2)), color = "black", size = 2)
+plot_num(df_new)
+```
+
+
+4.20 print  correlation values higher than 0.5
+```{r}
+zdf <- as.data.frame(as.table(cor(df_new)))
+subset(zdf, abs(Freq) > 0.5)
+```
+
+5. Model Selection
+```{r}
+#sum(is.na(df_new))
+#df_new <- na.omit(df_new)
+X =model.matrix(price~.,df_new)[,-1]
+nrow(X)
+y =df_new$price
+length(y)
+set.seed (10) 
+n = nrow(df_new)
+n
+a<-sample(n ,round(0.6*n) , rep=FALSE) 
+a
+y_tr <- y[a]
+X_tr <- X[a,]
+y_ts <- y[-a]
+X_ts <- X[-a,]
+# fit linear model
+fit_model = lm(price~., data =df_new[a,] )
+summary(fit_model)
+pred_model = predict(fit_model, newdata=df_new[-a,]) # prediction for test data
+mse_model = mean((pred_model-y_ts)^2) # mse for test data
+sqrt(mse_model)
+```
+
+OLS Regression with CV
+```{r}
+#OLS Regression with cross validation
+#drop sqft_above
+exclude_ <-c("sqft_basement")
+df_new_ols<-df_new[ , !(names(df_new)%in%exclude_)]
+n = nrow(df_new)
+k = 20
+RMSE_kcv_ols = numeric(k)
+#Create k equally size folds
+folds <- cut(1:n,breaks=k,labels=FALSE)
+folds
+#Perform a k-fold cross validation
+for(i in 1:k)
+{
+  # Find the indices for test data
+  test_index = which(folds==i)
+  
+  # Obtain training/test data
+  test_data = df_new_ols[test_index, ]
+  training_data = df_new_ols[-test_index, ]
+  
+  #Training matrix
+  X_tr = model.matrix(price~.,training_data)[, -1]
+  y_tr = training_data$price
+  
+  #Test matrix
+  X_ts = model.matrix(price~.,test_data)[, -1]
+  y_ts = test_data$price
+  
+  fit_ols = lm(price~., data =df_new[a,] )
+ 
+  # Obtain RMSE on the 'test' data
+  pred_ols = predict(fit_ols,newx = X_ts)
+  resid_ols = y_ts - pred_ols 
+  RMSE_kcv_ols[i] = sqrt(sum(resid_ols^2)/length(y_ts)) 
+}
+#All the values for RMSE
+RMSE_kcv_ols
+# Mean of RMSE 
+mean(RMSE_kcv_ols)
+```
+
+Lasso Regression
+```{r}
+library(glmnet)
+#LASSO with cross validation 
+n = nrow(df_new)
+k = 20
+RMSE_kcv_lasso = numeric(k)
+#Create k equally size folds
+folds <- cut(1:n,breaks=k,labels=FALSE)
+folds
+#Perform a k-fold cross validation
+for(i in 1:k)
+{
+  # Find the indices for test data
+  test_index = which(folds==i)
+  
+  # Obtain training/test data
+  test_data = df_new[test_index, ]
+  training_data = df_new[-test_index, ]
+  
+  #Training matrix
+  X_tr = model.matrix(price~.,training_data)[, -1]
+  y_tr = training_data$price
+  
+  #Test matrix
+  X_ts = model.matrix(price~.,test_data)[, -1]
+  y_ts = test_data$price
+  
+  fit_lasso_cv = cv.glmnet(X_tr, y_tr, alpha = 1)
+  bestlam = fit_lasso_cv$lambda.min
+  fit_lasso_best = glmnet(X_tr, y_tr, alpha = 1, lambda = bestlam)
+  
+  # Obtain RMSE on the 'test' data
+  pred_lasso = predict(fit_lasso_best, s = bestlam, newx = X_ts)
+  resid_lasso = y_ts - pred_lasso 
+  RMSE_kcv_lasso[i] = sqrt(sum(resid_lasso^2)/length(y_ts)) 
+}
+#All the values for RMSE
+RMSE_kcv_lasso
+# Mean of RMSE 
+mean(RMSE_kcv_lasso)
+```
+
+Ridge Regression
+```{r}
+#Ridge regression with cross validation
+n = nrow(df_new)
+k = 20
+RMSE_kcv_ridge = numeric(k)
+#Create k equally size folds
+folds <- cut(1:n,breaks=k,labels=FALSE)
+folds
+#Perform a k-fold cross validation
+for(i in 1:k)
+{
+  # Find the indices for test data
+  test_index = which(folds==i)
+  
+  # Obtain training/test data
+  test_data = df_new[test_index, ]
+  training_data = df_new[-test_index, ]
+  
+  #Training matrix
+  X_tr = model.matrix(price~.,training_data)[, -1]
+  y_tr = training_data$price
+  
+  #Test matrix
+  X_ts = model.matrix(price~.,test_data)[, -1]
+  y_ts = test_data$price
+  
+  fit_ridge_cv = cv.glmnet(X_tr, y_tr, alpha = 0)
+  bestlam = fit_ridge_cv$lambda.min
+  fit_ridge_best = glmnet(X_tr, y_tr, alpha = 0, lambda = bestlam)
+  
+  
+  # Obtain RMSE on the 'test' data
+  pred_ridge = predict(fit_ridge_best, s = bestlam, newx = X_ts)
+  resid_ridge = y_ts - pred_ridge 
+  RMSE_kcv_ridge[i] = sqrt(sum(resid_ridge^2)/length(y_ts)) 
+}
+#All the values for RMSE
+RMSE_kcv_ridge
+# Mean of RMSE 
+mean(RMSE_kcv_ridge)
+```
+
+```{r}
+coef(fit_ridge_best)
+coef(fit_lasso_best)
+```
+
+Fit Lasso Regression with orginal variables without any feature engineering
+```{r}
+data <-data[data$bathrooms > 0,]
+data <-data[data$bedrooms > 0,]
+data_new<-data[-c(1:2)]#drop zipcode...
+n = nrow(data_new)
+k = 2
+RMSE_kcv_lasso = numeric(k)
+#Create k equally size folds
+folds <- cut(1:n,breaks=k,labels=FALSE)
+folds
+#Perform a k-fold cross validation
+for(i in 1:k)
+{
+  # Find the indices for test data
+  test_index = which(folds==i)
+  
+  # Obtain training/test data
+  test_data = data_new[test_index, ]
+  training_data = data_new[-test_index, ]
+  
+  #Training matrix
+  X_tr = model.matrix(price~.,training_data)[, -1]
+  y_tr = training_data$price
+  
+  #Test matrix
+  X_ts = model.matrix(price~.,test_data)[, -1]
+  y_ts = test_data$price
+  
+  fit_lasso_cv = cv.glmnet(X_tr, y_tr, alpha = 1)
+  bestlam = fit_lasso_cv$lambda.min
+  fit_lasso_best = glmnet(X_tr, y_tr, alpha = 1, lambda = bestlam)
+  
+  # Obtain RMSE on the 'test' data
+  pred_lasso = predict(fit_lasso_best, s = bestlam, newx = X_ts)
+  resid_lasso = y_ts - pred_lasso 
+  RMSE_kcv_lasso[i] = sqrt(sum(resid_lasso^2)/length(y_ts)) 
+}
+#All the values for RMSE
+RMSE_kcv_lasso
+# Mean of RMSE 
+mean(RMSE_kcv_lasso)
+```
+
+```{r}
+coef(fit_lasso_best)
+```
